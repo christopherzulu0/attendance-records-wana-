@@ -52,11 +52,18 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+    if (isMatch) {
+      const userData = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      };
+      console.log('Backend - Login successful for user:', JSON.stringify(userData, null, 2));
+      res.status(200).json({ user: userData });
+    } else {
+      res.status(401).json({ error: 'Invalid credentials' });
     }
-    const { password: _, ...userWithoutPassword } = user;
-    res.status(200).json({ user: userWithoutPassword });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal server error' });
@@ -215,6 +222,8 @@ app.get('/api/classes', async (req, res) => {
         }
       }
     });
+    
+    console.log('Backend - Raw classes from database:', JSON.stringify(classes, null, 2));
     
     // Transform data to match frontend expectations
     const transformedClasses = classes.map(cls => ({
