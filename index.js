@@ -356,6 +356,11 @@ app.put('/api/classes/:id', async (req, res) => {
   const { id } = req.params;
   const { name, section, subject, description, schedule, room, teacherId } = req.body;
   
+  console.log('PUT /api/classes/:id request:');
+  console.log('ID:', id);
+  console.log('Request body:', req.body);
+  console.log('Room value:', room);
+  
   try {
     // Check if class exists
     const existingClass = await prisma.class.findUnique({ 
