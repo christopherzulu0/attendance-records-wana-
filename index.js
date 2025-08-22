@@ -220,8 +220,11 @@ app.get('/api/classes', async (req, res) => {
     const transformedClasses = classes.map(cls => ({
       id: cls.id.toString(),
       name: cls.name,
+      section: cls.section || '',
+      subject: cls.subject || '',
       description: cls.description || '',
-      section: cls.description || 'A', // Using description as section for now
+      schedule: cls.schedule || '',
+      room: cls.room || '',
       teacherId: cls.teacherId?.toString() || '',
       teacherName: cls.teacher?.name || 'Unassigned',
       totalStudents: cls.classStudents.length,
@@ -264,8 +267,11 @@ app.get('/api/classes/:id', async (req, res) => {
     const transformedClass = {
       id: cls.id.toString(),
       name: cls.name,
+      section: cls.section || '',
+      subject: cls.subject || '',
       description: cls.description || '',
-      section: cls.description || 'A',
+      schedule: cls.schedule || '',
+      room: cls.room || '',
       teacherId: cls.teacherId?.toString() || '',
       teacherName: cls.teacher?.name || 'Unassigned',
       totalStudents: cls.classStudents.length,
@@ -281,7 +287,7 @@ app.get('/api/classes/:id', async (req, res) => {
 
 // Create new class
 app.post('/api/classes', async (req, res) => {
-  const { name, description, teacherId } = req.body;
+  const { name, section, subject, description, schedule, room, teacherId } = req.body;
   
   if (!name) {
     return res.status(400).json({ error: 'Class name is required' });
@@ -301,7 +307,11 @@ app.post('/api/classes', async (req, res) => {
     const cls = await prisma.class.create({
       data: {
         name,
+        section: section || null,
+        subject: subject || null,
         description: description || null,
+        schedule: schedule || null,
+        room: room || null,
         teacherId: teacherId ? parseInt(teacherId) : null
       },
       include: {
@@ -323,8 +333,11 @@ app.post('/api/classes', async (req, res) => {
     const transformedClass = {
       id: cls.id.toString(),
       name: cls.name,
+      section: cls.section || '',
+      subject: cls.subject || '',
       description: cls.description || '',
-      section: cls.description || 'A',
+      schedule: cls.schedule || '',
+      room: cls.room || '',
       teacherId: cls.teacherId?.toString() || '',
       teacherName: cls.teacher?.name || 'Unassigned',
       totalStudents: cls.classStudents.length,
@@ -341,7 +354,7 @@ app.post('/api/classes', async (req, res) => {
 // Update class
 app.put('/api/classes/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, description, teacherId } = req.body;
+  const { name, section, subject, description, schedule, room, teacherId } = req.body;
   
   try {
     // Check if class exists
@@ -366,7 +379,11 @@ app.put('/api/classes/:id', async (req, res) => {
       where: { id: parseInt(id) },
       data: {
         ...(name && { name }),
+        ...(section !== undefined && { section: section || null }),
+        ...(subject !== undefined && { subject: subject || null }),
         ...(description !== undefined && { description: description || null }),
+        ...(schedule !== undefined && { schedule: schedule || null }),
+        ...(room !== undefined && { room: room || null }),
         ...(teacherId !== undefined && { teacherId: teacherId ? parseInt(teacherId) : null })
       },
       include: {
@@ -388,8 +405,11 @@ app.put('/api/classes/:id', async (req, res) => {
     const transformedClass = {
       id: cls.id.toString(),
       name: cls.name,
+      section: cls.section || '',
+      subject: cls.subject || '',
       description: cls.description || '',
-      section: cls.description || 'A',
+      schedule: cls.schedule || '',
+      room: cls.room || '',
       teacherId: cls.teacherId?.toString() || '',
       teacherName: cls.teacher?.name || 'Unassigned',
       totalStudents: cls.classStudents.length,

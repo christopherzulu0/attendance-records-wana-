@@ -28,7 +28,11 @@ model User {
 model Class {
   id          Int      @id @default(autoincrement())
   name        String
+  section     String?
+  subject     String?
   description String?
+  schedule    String?
+  room        String?
   teacher     User?    @relation("TeacherClasses", fields: [teacherId], references: [id])
   teacherId   Int?
   createdAt   DateTime @default(now())
