@@ -196,6 +196,236 @@ app.delete('/api/users/:id', async (req, res) => {
   }
 });
 
+// Get all classes
+app.get('/api/classes', async (req, res) => {
+  try {
+    const classes = await prisma.class.findMany({
+      include: {
+        teacher: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        },
+        classStudents: {
+          include: {
+            student: true
+          }
+        }
+      }
+    });
+    
+    // Transform data to match frontend expectations
+    const transformedClasses = classes.map(cls => ({
+      id: cls.id.toString(),
+      name: cls.name,
+      description: cls.description || '',
+      section: cls.description || 'A', // Using description as section for now
+      teacherId: cls.teacherId?.toString() || '',
+      teacherName: cls.teacher?.name || 'Unassigned',
+      totalStudents: cls.classStudents.length,
+      createdAt: cls.createdAt
+    }));
+    
+    res.status(200).json({ classes: transformedClasses });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get class by ID
+app.get('/api/classes/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const cls = await prisma.class.findUnique({
+      where: { id: parseInt(id) },
+      include: {
+        teacher: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        },
+        classStudents: {
+          include: {
+            student: true
+          }
+        }
+      }
+    });
+    
+    if (!cls) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+    
+    const transformedClass = {
+      id: cls.id.toString(),
+      name: cls.name,
+      description: cls.description || '',
+      section: cls.description || 'A',
+      teacherId: cls.teacherId?.toString() || '',
+      teacherName: cls.teacher?.name || 'Unassigned',
+      totalStudents: cls.classStudents.length,
+      createdAt: cls.createdAt
+    };
+    
+    res.status(200).json({ class: transformedClass });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create new class
+app.post('/api/classes', async (req, res) => {
+  const { name, description, teacherId } = req.body;
+  
+  if (!name) {
+    return res.status(400).json({ error: 'Class name is required' });
+  }
+  
+  try {
+    // Validate teacher exists if teacherId is provided
+    if (teacherId) {
+      const teacher = await prisma.user.findUnique({ 
+        where: { id: parseInt(teacherId) } 
+      });
+      if (!teacher) {
+        return res.status(404).json({ error: 'Teacher not found' });
+      }
+    }
+    
+    const cls = await prisma.class.create({
+      data: {
+        name,
+        description: description || null,
+        teacherId: teacherId ? parseInt(teacherId) : null
+      },
+      include: {
+        teacher: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        },
+        classStudents: {
+          include: {
+            student: true
+          }
+        }
+      }
+    });
+    
+    const transformedClass = {
+      id: cls.id.toString(),
+      name: cls.name,
+      description: cls.description || '',
+      section: cls.description || 'A',
+      teacherId: cls.teacherId?.toString() || '',
+      teacherName: cls.teacher?.name || 'Unassigned',
+      totalStudents: cls.classStudents.length,
+      createdAt: cls.createdAt
+    };
+    
+    res.status(201).json({ class: transformedClass });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update class
+app.put('/api/classes/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, description, teacherId } = req.body;
+  
+  try {
+    // Check if class exists
+    const existingClass = await prisma.class.findUnique({ 
+      where: { id: parseInt(id) } 
+    });
+    if (!existingClass) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+    
+    // Validate teacher exists if teacherId is provided
+    if (teacherId) {
+      const teacher = await prisma.user.findUnique({ 
+        where: { id: parseInt(teacherId) } 
+      });
+      if (!teacher) {
+        return res.status(404).json({ error: 'Teacher not found' });
+      }
+    }
+    
+    const cls = await prisma.class.update({
+      where: { id: parseInt(id) },
+      data: {
+        ...(name && { name }),
+        ...(description !== undefined && { description: description || null }),
+        ...(teacherId !== undefined && { teacherId: teacherId ? parseInt(teacherId) : null })
+      },
+      include: {
+        teacher: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        },
+        classStudents: {
+          include: {
+            student: true
+          }
+        }
+      }
+    });
+    
+    const transformedClass = {
+      id: cls.id.toString(),
+      name: cls.name,
+      description: cls.description || '',
+      section: cls.description || 'A',
+      teacherId: cls.teacherId?.toString() || '',
+      teacherName: cls.teacher?.name || 'Unassigned',
+      totalStudents: cls.classStudents.length,
+      createdAt: cls.createdAt
+    };
+    
+    res.status(200).json({ class: transformedClass });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Delete class
+app.delete('/api/classes/:id', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // Check if class exists
+    const existingClass = await prisma.class.findUnique({ 
+      where: { id: parseInt(id) } 
+    });
+    if (!existingClass) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+    
+    // Delete class (this will cascade delete related records)
+    await prisma.class.delete({ where: { id: parseInt(id) } });
+    
+    res.status(200).json({ message: 'Class deleted successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Backend API running on port ${PORT}`);
 });
