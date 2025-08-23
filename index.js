@@ -648,6 +648,46 @@ app.get('/api/students', async (req, res) => {
   }
 });
 
+// Get student by user ID
+app.get('/api/students/by-user/:userId', async (req, res) => {
+  const { userId } = req.params;
+  
+  try {
+    const student = await prisma.student.findUnique({
+      where: { userId: parseInt(userId) },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            role: true
+          }
+        }
+      }
+    });
+    
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found for this user' });
+    }
+    
+    const formattedStudent = {
+      id: student.id.toString(),
+      name: student.name,
+      email: student.email,
+      registrationNumber: student.registrationNumber,
+      userId: student.userId?.toString(),
+      userEmail: student.user?.email,
+      hasAccount: !!student.user,
+      createdAt: student.createdAt
+    };
+    
+    res.json({ student: formattedStudent });
+  } catch (err) {
+    console.error('Error fetching student by user ID:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Create a new student
 app.post('/api/students', async (req, res) => {
   const { name, email, registrationNumber, createAccount, password, generatedPassword } = req.body;
@@ -875,6 +915,64 @@ app.get('/api/students/:id/attendance', async (req, res) => {
     res.json(formattedRecords);
   } catch (err) {
     console.error('Error fetching student attendance:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Link existing user to student record
+app.post('/api/students/:studentId/link-user/:userId', async (req, res) => {
+  const { studentId, userId } = req.params;
+  
+  try {
+    // Check if user exists
+    const user = await prisma.user.findUnique({
+      where: { id: parseInt(userId) }
+    });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Check if student exists
+    const existingStudent = await prisma.student.findUnique({
+      where: { id: parseInt(studentId) }
+    });
+    
+    if (!existingStudent) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+    
+    // Update student record to link with user
+    const student = await prisma.student.update({
+      where: { id: parseInt(studentId) },
+      data: {
+        userId: parseInt(userId)
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            role: true
+          }
+        }
+      }
+    });
+    
+    const formattedStudent = {
+      id: student.id.toString(),
+      name: student.name,
+      email: student.email,
+      registrationNumber: student.registrationNumber,
+      userId: student.userId?.toString(),
+      userEmail: student.user?.email,
+      hasAccount: !!student.user,
+      createdAt: student.createdAt
+    };
+    
+    res.json({ message: 'Student linked to user successfully', student: formattedStudent });
+  } catch (err) {
+    console.error('Error linking student to user:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
