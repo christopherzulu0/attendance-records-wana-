@@ -633,6 +633,7 @@ app.get('/api/students', async (req, res) => {
       name: student.name,
       email: student.email,
       registrationNumber: student.registrationNumber,
+      password: student.password, // Include password for admin reference
       userId: student.userId?.toString(),
       userEmail: student.user?.email,
       hasAccount: !!student.user,
@@ -649,14 +650,15 @@ app.get('/api/students', async (req, res) => {
 
 // Create a new student
 app.post('/api/students', async (req, res) => {
-  const { name, email, registrationNumber, createAccount, password } = req.body;
+  const { name, email, registrationNumber, createAccount, password, generatedPassword } = req.body;
   
   try {
     let userId = null;
     
     // If createAccount is true, create a user account for the student
-    if (createAccount && email && password) {
-      const hashedPassword = await bcrypt.hash(password, 10);
+    if (createAccount && email && (password || generatedPassword)) {
+      const passwordToUse = generatedPassword || password;
+      const hashedPassword = await bcrypt.hash(passwordToUse, 10);
       
       const user = await prisma.user.create({
         data: {
@@ -675,6 +677,7 @@ app.post('/api/students', async (req, res) => {
         name,
         email,
         registrationNumber,
+        password: generatedPassword || password, // Store the password for admin reference
         userId
       },
       include: {
@@ -693,6 +696,7 @@ app.post('/api/students', async (req, res) => {
       name: student.name,
       email: student.email,
       registrationNumber: student.registrationNumber,
+      password: student.password, // Include password for admin reference
       userId: student.userId?.toString(),
       userEmail: student.user?.email,
       hasAccount: !!student.user,
@@ -822,6 +826,55 @@ app.delete('/api/students/:id', async (req, res) => {
     res.json({ message: 'Student deleted successfully' });
   } catch (err) {
     console.error('Error deleting student:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get student attendance records
+app.get('/api/students/:id/attendance', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    // First, find the student by user ID
+    const student = await prisma.student.findFirst({
+      where: {
+        userId: parseInt(id)
+      }
+    });
+    
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+    
+    // Get attendance records for this student
+    const attendanceRecords = await prisma.attendance.findMany({
+      where: {
+        studentId: student.id
+      },
+      include: {
+        class: {
+          select: {
+            name: true
+          }
+        }
+      },
+      orderBy: {
+        date: 'desc'
+      }
+    });
+    
+    const formattedRecords = attendanceRecords.map(record => ({
+      id: record.id.toString(),
+      date: record.date,
+      status: record.status,
+      class: {
+        name: record.class.name
+      }
+    }));
+    
+    res.json(formattedRecords);
+  } catch (err) {
+    console.error('Error fetching student attendance:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

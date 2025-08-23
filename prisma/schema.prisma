@@ -46,6 +46,7 @@ model Student {
   name        String
   email       String?  @unique
   registrationNumber String? @unique
+  password    String?  // Store the generated password for admin reference
   user        User?    @relation("UserStudent", fields: [userId], references: [id])
   userId      Int?     @unique
   createdAt   DateTime @default(now())
