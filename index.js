@@ -287,7 +287,16 @@ app.get('/api/classes/:id', async (req, res) => {
       createdAt: cls.createdAt
     };
     
-    res.status(200).json({ class: transformedClass });
+    // Transform students data
+    const students = cls.classStudents.map(cs => ({
+      id: cs.student.id.toString(),
+      name: cs.student.name,
+      email: cs.student.email,
+      studentId: cs.student.studentId,
+      createdAt: cs.student.createdAt
+    }));
+    
+    res.status(200).json({ class: transformedClass, students });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal server error' });
