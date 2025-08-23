@@ -460,6 +460,151 @@ app.delete('/api/classes/:id', async (req, res) => {
   }
 });
 
+// Enroll student in class
+app.post('/api/classes/:id/enroll', async (req, res) => {
+  const { id } = req.params;
+  const { studentId } = req.body;
+  
+  try {
+    // Check if class exists
+    const existingClass = await prisma.class.findUnique({ 
+      where: { id: parseInt(id) } 
+    });
+    if (!existingClass) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+    
+    // Check if student exists
+    const existingStudent = await prisma.student.findUnique({ 
+      where: { id: parseInt(studentId) } 
+    });
+    if (!existingStudent) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+    
+    // Check if student is already enrolled
+    const existingEnrollment = await prisma.classStudent.findUnique({
+      where: {
+        classId_studentId: {
+          classId: parseInt(id),
+          studentId: parseInt(studentId)
+        }
+      }
+    });
+    
+    if (existingEnrollment) {
+      return res.status(400).json({ error: 'Student is already enrolled in this class' });
+    }
+    
+    // Create enrollment
+    const enrollment = await prisma.classStudent.create({
+      data: {
+        classId: parseInt(id),
+        studentId: parseInt(studentId)
+      },
+      include: {
+        class: true,
+        student: true
+      }
+    });
+    
+    res.status(201).json({ 
+      message: 'Student enrolled successfully',
+      enrollment: {
+        id: enrollment.id,
+        classId: enrollment.classId.toString(),
+        studentId: enrollment.studentId.toString(),
+        enrolledAt: enrollment.enrolledAt,
+        className: enrollment.class.name,
+        studentName: enrollment.student.name
+      }
+    });
+  } catch (err) {
+    console.error('Enrollment error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Unenroll student from class
+app.delete('/api/classes/:id/unenroll', async (req, res) => {
+  const { id } = req.params;
+  const { studentId } = req.body;
+  
+  try {
+    // Check if enrollment exists
+    const existingEnrollment = await prisma.classStudent.findUnique({
+      where: {
+        classId_studentId: {
+          classId: parseInt(id),
+          studentId: parseInt(studentId)
+        }
+      }
+    });
+    
+    if (!existingEnrollment) {
+      return res.status(404).json({ error: 'Student is not enrolled in this class' });
+    }
+    
+    // Delete enrollment
+    await prisma.classStudent.delete({
+      where: {
+        classId_studentId: {
+          classId: parseInt(id),
+          studentId: parseInt(studentId)
+        }
+      }
+    });
+    
+    res.status(200).json({ message: 'Student unenrolled successfully' });
+  } catch (err) {
+    console.error('Unenrollment error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get student's enrolled classes
+app.get('/api/students/:id/classes', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    const enrollments = await prisma.classStudent.findMany({
+      where: { studentId: parseInt(id) },
+      include: {
+        class: {
+          include: {
+            teacher: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            }
+          }
+        }
+      }
+    });
+    
+    const classes = enrollments.map(enrollment => ({
+      id: enrollment.class.id.toString(),
+      name: enrollment.class.name,
+      section: enrollment.class.section || '',
+      subject: enrollment.class.subject || '',
+      description: enrollment.class.description || '',
+      schedule: enrollment.class.schedule || '',
+      room: enrollment.class.room || '',
+      teacherId: enrollment.class.teacherId?.toString() || '',
+      teacherName: enrollment.class.teacher?.name || 'Unassigned',
+      enrolledAt: enrollment.enrolledAt,
+      createdAt: enrollment.class.createdAt
+    }));
+    
+    res.status(200).json({ classes });
+  } catch (err) {
+    console.error('Get student classes error:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Backend API running on port ${PORT}`);
 });
