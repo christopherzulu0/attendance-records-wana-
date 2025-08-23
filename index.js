@@ -605,6 +605,227 @@ app.get('/api/students/:id/classes', async (req, res) => {
   }
 });
 
+// Get all students
+app.get('/api/students', async (req, res) => {
+  try {
+    const students = await prisma.student.findMany({
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            role: true
+          }
+        },
+        _count: {
+          select: {
+            classStudents: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+    
+    const formattedStudents = students.map(student => ({
+      id: student.id.toString(),
+      name: student.name,
+      email: student.email,
+      registrationNumber: student.registrationNumber,
+      userId: student.userId?.toString(),
+      userEmail: student.user?.email,
+      hasAccount: !!student.user,
+      enrolledClassesCount: student._count.classStudents,
+      createdAt: student.createdAt
+    }));
+    
+    res.json(formattedStudents);
+  } catch (err) {
+    console.error('Error fetching students:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Create a new student
+app.post('/api/students', async (req, res) => {
+  const { name, email, registrationNumber, createAccount, password } = req.body;
+  
+  try {
+    let userId = null;
+    
+    // If createAccount is true, create a user account for the student
+    if (createAccount && email && password) {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      
+      const user = await prisma.user.create({
+        data: {
+          name,
+          email,
+          password: hashedPassword,
+          role: 'student'
+        }
+      });
+      
+      userId = user.id;
+    }
+    
+    const student = await prisma.student.create({
+      data: {
+        name,
+        email,
+        registrationNumber,
+        userId
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            role: true
+          }
+        }
+      }
+    });
+    
+    const formattedStudent = {
+      id: student.id.toString(),
+      name: student.name,
+      email: student.email,
+      registrationNumber: student.registrationNumber,
+      userId: student.userId?.toString(),
+      userEmail: student.user?.email,
+      hasAccount: !!student.user,
+      createdAt: student.createdAt
+    };
+    
+    res.status(201).json(formattedStudent);
+  } catch (err) {
+    console.error('Error creating student:', err);
+    if (err.code === 'P2002') {
+      res.status(400).json({ error: 'Email or registration number already exists' });
+    } else {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+});
+
+// Update a student
+app.put('/api/students/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, email, registrationNumber, createAccount, password } = req.body;
+  
+  try {
+    const existingStudent = await prisma.student.findUnique({
+      where: { id: parseInt(id) },
+      include: { user: true }
+    });
+    
+    if (!existingStudent) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+    
+    let userId = existingStudent.userId;
+    
+    // If createAccount is true and student doesn't have an account, create one
+    if (createAccount && !existingStudent.user && email && password) {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      
+      const user = await prisma.user.create({
+        data: {
+          name,
+          email,
+          password: hashedPassword,
+          role: 'student'
+        }
+      });
+      
+      userId = user.id;
+    } else if (existingStudent.user) {
+      // Update existing user account
+      await prisma.user.update({
+        where: { id: existingStudent.userId },
+        data: {
+          name,
+          email: email || existingStudent.user.email
+        }
+      });
+    }
+    
+    const student = await prisma.student.update({
+      where: { id: parseInt(id) },
+      data: {
+        name,
+        email,
+        registrationNumber,
+        userId
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            role: true
+          }
+        }
+      }
+    });
+    
+    const formattedStudent = {
+      id: student.id.toString(),
+      name: student.name,
+      email: student.email,
+      registrationNumber: student.registrationNumber,
+      userId: student.userId?.toString(),
+      userEmail: student.user?.email,
+      hasAccount: !!student.user,
+      createdAt: student.createdAt
+    };
+    
+    res.json(formattedStudent);
+  } catch (err) {
+    console.error('Error updating student:', err);
+    if (err.code === 'P2002') {
+      res.status(400).json({ error: 'Email or registration number already exists' });
+    } else {
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+});
+
+// Delete a student
+app.delete('/api/students/:id', async (req, res) => {
+  const { id } = req.params;
+  
+  try {
+    const student = await prisma.student.findUnique({
+      where: { id: parseInt(id) },
+      include: { user: true }
+    });
+    
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+    
+    // Delete student record (this will cascade to ClassStudent records)
+    await prisma.student.delete({
+      where: { id: parseInt(id) }
+    });
+    
+    // If student has a user account, delete it too
+    if (student.userId) {
+      await prisma.user.delete({
+        where: { id: student.userId }
+      });
+    }
+    
+    res.json({ message: 'Student deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting student:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Backend API running on port ${PORT}`);
 });
