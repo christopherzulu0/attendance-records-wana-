@@ -47,6 +47,8 @@ model Student {
   email       String?  @unique
   registrationNumber String? @unique
   password    String?  // Store the generated password for admin reference
+  faceEncoding String? @db.Text // Store serialized face descriptor
+  faceEnrolled Boolean @default(false)
   user        User?    @relation("UserStudent", fields: [userId], references: [id])
   userId      Int?     @unique
   createdAt   DateTime @default(now())
@@ -73,6 +75,7 @@ model Attendance {
   studentId  Int
   date       DateTime
   status     String   // 'present', 'absent', 'late', etc.
+  method     String   @default("manual") // 'manual', 'face_recognition'
   markedBy   User?    @relation("MarkedBy", fields: [markedById], references: [id])
   markedById Int?
   markedAt   DateTime @default(now())

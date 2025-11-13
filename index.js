@@ -3,13 +3,162 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
+const { spawn } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 const prisma = new PrismaClient();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(bodyParser.json());
+app.use(bodyParser.json({ limit: '10mb' })); // Increase limit for base64 images
+
+/**
+ * Get the Python command to use (prefers virtual environment if available)
+ */
+function getPythonCommand() {
+  const isWindows = os.platform() === 'win32';
+  const backendDir = __dirname;
+  
+  // Check for virtual environment
+  if (isWindows) {
+    const venvPython = path.join(backendDir, 'venv', 'Scripts', 'python.exe');
+    if (fs.existsSync(venvPython)) {
+      return { command: venvPython, args: ['face_recognition_service.py'] };
+    }
+    // Fallback to Windows Python launcher
+    return { command: 'py', args: ['-3.11', 'face_recognition_service.py'] };
+  } else {
+    // Linux/Mac - check for venv
+    const venvPython = path.join(backendDir, 'venv', 'bin', 'python3');
+    if (fs.existsSync(venvPython)) {
+      return { command: venvPython, args: ['face_recognition_service.py'] };
+    }
+    // Fallback to system python3
+    return { command: 'python3', args: ['face_recognition_service.py'] };
+  }
+}
+
+/**
+ * Call Python face recognition service
+ * Uses stdin to pass large data instead of command-line args
+ */
+function callPythonFaceRecognition(command, data) {
+  return new Promise((resolve, reject) => {
+    const { command: pythonCommand, args } = getPythonCommand();
+    const pythonArgs = [...args, command];
+    
+    console.log(`Using Python: ${pythonCommand} ${pythonArgs.join(' ')}`);
+    
+    const python = spawn(pythonCommand, pythonArgs, {
+      cwd: __dirname // Ensure we're in the backend directory
+    });
+    
+    let stdout = '';
+    let stderr = '';
+    let hasResolved = false;
+    
+    // Handle stdin errors gracefully (EPIPE is expected if process exits early)
+    python.stdin.on('error', (err) => {
+      if (err.code !== 'EPIPE') {
+        console.error('Stdin error (non-EPIPE):', err);
+      }
+      // Don't reject here, let the process handle it
+    });
+    
+    python.stdout.on('data', (data) => {
+      stdout += data.toString();
+    });
+    
+    python.stderr.on('data', (data) => {
+      const errorText = data.toString();
+      stderr += errorText;
+      console.error('Python stderr:', errorText);
+    });
+    
+    python.on('close', (code) => {
+      if (hasResolved) return;
+      
+      if (code !== 0) {
+        console.error('Python process exited with code:', code);
+        console.error('Python stderr output:', stderr);
+        reject(new Error(stderr || `Python process failed with code ${code}`));
+      } else {
+        try {
+          if (!stdout) {
+            reject(new Error('Python process returned no output. Check stderr for errors.'));
+            return;
+          }
+          const result = JSON.parse(stdout);
+          resolve(result);
+          hasResolved = true;
+        } catch (e) {
+          console.error('Failed to parse Python output:', stdout);
+          console.error('Parse error:', e.message);
+          reject(new Error(`Failed to parse Python output: ${e.message}. Output: ${stdout.substring(0, 200)}`));
+        }
+      }
+    });
+    
+    python.on('error', (err) => {
+      if (hasResolved) return;
+      console.error('Failed to start Python process:', err);
+      reject(new Error(`Failed to start Python process: ${err.message}`));
+    });
+    
+    // Send data via stdin for large payloads
+    // Wait a bit to ensure process is ready, then write
+    if (data) {
+      const writeData = () => {
+        try {
+          const jsonData = JSON.stringify(data);
+          
+          // Check if stdin is still writable
+          if (python.stdin.destroyed || python.stdin.closed) {
+            console.warn('Python stdin is already closed, cannot write data');
+            return;
+          }
+          
+          // Write data
+          const writeSuccess = python.stdin.write(jsonData, 'utf8');
+          
+          if (!writeSuccess) {
+            // If write buffer is full, wait for drain
+            python.stdin.once('drain', () => {
+              python.stdin.end();
+            });
+          } else {
+            // All data written, close stdin
+            python.stdin.end();
+          }
+        } catch (err) {
+          // EPIPE errors are expected if process exits early, ignore them
+          if (err.code !== 'EPIPE') {
+            console.error('Error sending data to Python:', err);
+          }
+          // Try to end stdin anyway
+          try {
+            if (!python.stdin.destroyed && !python.stdin.closed) {
+              python.stdin.end();
+            }
+          } catch (e) {
+            // Ignore errors when ending
+          }
+        }
+      };
+      
+      // Wait a bit to ensure process is ready
+      if (python.stdin.writable) {
+        // Use setImmediate to ensure process has started
+        setImmediate(writeData);
+      } else {
+        setTimeout(writeData, 100);
+      }
+    }
+  });
+}
 
 // Signup endpoint
 app.post('/api/signup', async (req, res) => {
@@ -82,7 +231,14 @@ app.get('/api/users', async (req, res) => {
         createdAt: true
       }
     });
-    res.status(200).json({ users });
+    
+    // Convert IDs to strings for consistency with frontend
+    const formattedUsers = users.map(user => ({
+      ...user,
+      id: user.id.toString()
+    }));
+    
+    res.status(200).json({ users: formattedUsers });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal server error' });
@@ -106,7 +262,14 @@ app.get('/api/users/:id', async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    res.status(200).json({ user });
+    
+    // Convert ID to string for consistency with frontend
+    const formattedUser = {
+      ...user,
+      id: user.id.toString()
+    };
+    
+    res.status(200).json({ user: formattedUser });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal server error' });
@@ -138,7 +301,14 @@ app.post('/api/users', async (req, res) => {
         createdAt: true
       }
     });
-    res.status(201).json({ user });
+    
+    // Convert ID to string for consistency with frontend
+    const formattedUser = {
+      ...user,
+      id: user.id.toString()
+    };
+    
+    res.status(201).json({ user: formattedUser });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal server error' });
@@ -178,7 +348,14 @@ app.put('/api/users/:id', async (req, res) => {
         createdAt: true
       }
     });
-    res.status(200).json({ user });
+    
+    // Convert ID to string for consistency with frontend
+    const formattedUser = {
+      ...user,
+      id: user.id.toString()
+    };
+    
+    res.status(200).json({ user: formattedUser });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Internal server error' });
@@ -879,55 +1056,6 @@ app.delete('/api/students/:id', async (req, res) => {
   }
 });
 
-// Get student attendance records
-app.get('/api/students/:id/attendance', async (req, res) => {
-  const { id } = req.params;
-  
-  try {
-    // First, find the student by user ID
-    const student = await prisma.student.findFirst({
-      where: {
-        userId: parseInt(id)
-      }
-    });
-    
-    if (!student) {
-      return res.status(404).json({ error: 'Student not found' });
-    }
-    
-    // Get attendance records for this student
-    const attendanceRecords = await prisma.attendance.findMany({
-      where: {
-        studentId: student.id
-      },
-      include: {
-        class: {
-          select: {
-            name: true
-          }
-        }
-      },
-      orderBy: {
-        date: 'desc'
-      }
-    });
-    
-    const formattedRecords = attendanceRecords.map(record => ({
-      id: record.id.toString(),
-      date: record.date,
-      status: record.status,
-      class: {
-        name: record.class.name
-      }
-    }));
-    
-    res.json(formattedRecords);
-  } catch (err) {
-    console.error('Error fetching student attendance:', err);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
 // Link existing user to student record
 app.post('/api/students/:studentId/link-user/:userId', async (req, res) => {
   const { studentId, userId } = req.params;
@@ -982,6 +1110,442 @@ app.post('/api/students/:studentId/link-user/:userId', async (req, res) => {
     res.json({ message: 'Student linked to user successfully', student: formattedStudent });
   } catch (err) {
     console.error('Error linking student to user:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Face enrollment endpoint - Uses Python for REAL face recognition
+app.post('/api/students/:id/enroll-face', async (req, res) => {
+  try {
+    console.log('');
+    console.log('========================================');
+    console.log('FACE ENROLLMENT REQUEST RECEIVED!!!');
+    console.log('Student ID:', req.params.id);
+    console.log('Request body keys:', Object.keys(req.body));
+    console.log('Has base64Image:', !!req.body.base64Image);
+    console.log('Has faceEncoding:', !!req.body.faceEncoding);
+    console.log('========================================');
+    console.log('');
+    
+    const studentId = parseInt(req.params.id);
+    const { base64Image } = req.body;
+
+    if (!base64Image) {
+      console.log('ERROR: base64Image not found in request body');
+      return res.status(400).json({ error: 'Face image (base64) is required' });
+    }
+
+    console.log('Calling Python face recognition service...');
+
+    // Call Python face recognition service to generate encoding
+    // Pass data via stdin instead of command-line args
+    const pythonResult = await callPythonFaceRecognition('encode', { image: base64Image });
+    
+    if (!pythonResult.success) {
+      console.log('Python face detection failed:', pythonResult.error);
+      return res.status(400).json({ error: pythonResult.error || 'Face detection failed' });
+    }
+
+    console.log('Face encoding generated successfully via Python');
+
+    // Store the face encoding
+    const faceEncodingJson = JSON.stringify({
+      encoding: pythonResult.encoding,
+      timestamp: Date.now(),
+      version: '1.0_python',
+      face_location: pythonResult.face_location
+    });
+
+    // Update student with face encoding
+    const updatedStudent = await prisma.student.update({
+      where: { id: studentId },
+      data: {
+        faceEncoding: faceEncodingJson,
+        faceEnrolled: true
+      }
+    });
+
+    res.json({ 
+      message: 'Face enrollment completed successfully using deep learning',
+      student: {
+        id: updatedStudent.id,
+        name: updatedStudent.name,
+        faceEnrolled: updatedStudent.faceEnrolled
+      },
+      confidence: pythonResult.confidence,
+      face_location: pythonResult.face_location
+    });
+  } catch (err) {
+    console.error('Error enrolling face:', err);
+    res.status(500).json({ error: 'Internal server error: ' + err.message });
+  }
+});
+
+// Get student attendance history
+app.get('/api/students/:id/attendance', async (req, res) => {
+  try {
+    const studentId = parseInt(req.params.id);
+    const month = parseInt(req.query.month) || new Date().getMonth() + 1;
+    const year = parseInt(req.query.year) || new Date().getFullYear();
+
+    console.log(`Fetching attendance for student ${studentId}, month: ${month}, year: ${year}`);
+
+    // Get attendance records for the student in the specified month/year
+    const startDate = new Date(year, month - 1, 1);
+    const endDate = new Date(year, month, 0, 23, 59, 59);
+
+    const attendance = await prisma.attendance.findMany({
+      where: {
+        studentId: studentId,
+        date: {
+          gte: startDate,
+          lte: endDate
+        }
+      },
+      orderBy: {
+        date: 'desc'
+      },
+      include: {
+        class: {
+          select: {
+            name: true,
+            section: true
+          }
+        }
+      }
+    });
+
+    res.json({
+      attendance: attendance.map(record => ({
+        id: record.id.toString(),
+        date: record.date.toISOString().split('T')[0],
+        status: record.status,
+        method: record.method,
+        classId: record.classId.toString(),
+        className: record.class.name,
+        section: record.class.section
+      }))
+    });
+  } catch (err) {
+    console.error('Error fetching attendance:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Face enrollment status endpoint
+app.get('/api/students/:id/face-status', async (req, res) => {
+  try {
+    const studentId = parseInt(req.params.id);
+
+    const student = await prisma.student.findUnique({
+      where: { id: studentId },
+      select: {
+        id: true,
+        name: true,
+        faceEnrolled: true,
+        faceEncoding: false // Don't return the actual encoding for security
+      }
+    });
+
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    res.json({ 
+      student: {
+        id: student.id,
+        name: student.name,
+        faceEnrolled: student.faceEnrolled
+      }
+    });
+  } catch (err) {
+    console.error('Error getting face status:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Face recognition attendance endpoint - Uses Python for REAL face verification  
+app.post('/api/attendance/face-recognition', async (req, res) => {
+  try {
+    console.log('');
+    console.log('========================================');
+    console.log('FACE RECOGNITION ATTENDANCE REQUEST');
+    console.log('Request body keys:', Object.keys(req.body));
+    console.log('studentId:', req.body.studentId, 'Type:', typeof req.body.studentId);
+    console.log('classId:', req.body.classId, 'Type:', typeof req.body.classId);
+    console.log('base64Image length:', req.body.base64Image?.length || 0);
+    console.log('========================================');
+    console.log('');
+    
+    const { studentId, classId, base64Image } = req.body;
+
+    if (!studentId || !classId || !base64Image) {
+      console.log('ERROR: Missing required fields');
+      console.log('studentId:', !!studentId, 'classId:', !!classId, 'base64Image:', !!base64Image);
+      return res.status(400).json({ error: 'Student ID, class ID, and face image are required' });
+    }
+
+    // Get student and verify face enrollment
+    const student = await prisma.student.findUnique({
+      where: { id: parseInt(studentId) },
+      select: {
+        id: true,
+        name: true,
+        faceEnrolled: true,
+        faceEncoding: true
+      }
+    });
+
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    if (!student.faceEnrolled || !student.faceEncoding) {
+      return res.status(400).json({ error: 'Student has not enrolled their face. Please enroll first.' });
+    }
+
+    console.log('Generating encoding for captured face via Python...');
+    
+    // Generate encoding from captured image using Python
+    const capturedResult = await callPythonFaceRecognition('encode', { image: base64Image });
+    
+    if (!capturedResult.success) {
+      console.log('Failed to detect face:', capturedResult.error);
+      return res.status(400).json({ error: capturedResult.error || 'Could not detect face in image' });
+    }
+
+    console.log('Comparing with enrolled face via Python...');
+    
+    // Get stored encoding
+    const storedData = JSON.parse(student.faceEncoding);
+    const storedEncoding = storedData.encoding;
+    
+    // Compare faces using Python's face_recognition library with STRICT tolerance
+    // tolerance: 0.5 = strict (recommended for attendance)
+    //            0.4 = very strict (may reject some valid matches)
+    //            0.6 = default (may accept some invalid matches)
+    const comparisonResult = await callPythonFaceRecognition('compare', {
+      encoding1: storedEncoding,
+      encoding2: capturedResult.encoding,
+      tolerance: 0.5  // STRICT matching for security
+    });
+
+    console.log(`Face match: ${comparisonResult.match}, distance: ${comparisonResult.distance?.toFixed(3)}, threshold: ${comparisonResult.threshold}, quality: ${comparisonResult.quality}`);
+
+    if (!comparisonResult.match) {
+      return res.status(401).json({ 
+        error: `Face not recognized. Identity does not match enrolled face.`,
+        details: `Similarity: ${Math.round(comparisonResult.similarity * 100)}%, Distance: ${comparisonResult.distance?.toFixed(3)}, Quality: ${comparisonResult.quality}`,
+        similarity: Math.round(comparisonResult.similarity * 100),
+        distance: comparisonResult.distance,
+        threshold: Math.round(comparisonResult.threshold * 100),
+        quality: comparisonResult.quality,
+        match: false
+      });
+    }
+
+    console.log('Face verified successfully! Marking attendance...');
+
+    // Check if attendance already exists for today
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const existingAttendance = await prisma.attendance.findFirst({
+      where: {
+        studentId: parseInt(studentId),
+        classId: parseInt(classId),
+        date: {
+          gte: today,
+          lt: new Date(today.getTime() + 24 * 60 * 60 * 1000)
+        }
+      }
+    });
+
+    if (existingAttendance) {
+      // Update existing attendance
+      const updatedAttendance = await prisma.attendance.update({
+        where: { id: existingAttendance.id },
+        data: {
+          status: 'present',
+          method: 'face_recognition',
+          markedAt: new Date()
+        }
+      });
+
+      return res.json({
+        message: 'Attendance updated successfully via face recognition',
+        attendance: updatedAttendance,
+        similarity: Math.round(comparisonResult.similarity * 100),
+        verified: true
+      });
+    } else {
+      // Create new attendance record
+      const newAttendance = await prisma.attendance.create({
+        data: {
+          studentId: parseInt(studentId),
+          classId: parseInt(classId),
+          date: new Date(),
+          status: 'present',
+          method: 'face_recognition',
+          markedAt: new Date()
+        }
+      });
+
+      return res.json({
+        message: 'Attendance marked successfully via face recognition',
+        attendance: newAttendance,
+        similarity: Math.round(comparisonResult.similarity * 100),
+        verified: true
+      });
+    }
+  } catch (err) {
+    console.error('Error marking attendance via face recognition:', err);
+    res.status(500).json({ error: 'Internal server error: ' + err.message });
+  }
+});
+
+// Mark attendance manually (for teachers)
+app.post('/api/attendance/mark', async (req, res) => {
+  try {
+    const { studentId, classId, date, status, markedById } = req.body;
+
+    if (!studentId || !classId || !date || !status) {
+      return res.status(400).json({ error: 'Student ID, class ID, date, and status are required' });
+    }
+
+    // Validate status
+    if (!['present', 'absent', 'late'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status. Must be present, absent, or late' });
+    }
+
+    // Parse date
+    const attendanceDate = new Date(date);
+    attendanceDate.setHours(0, 0, 0, 0);
+    const nextDay = new Date(attendanceDate);
+    nextDay.setDate(nextDay.getDate() + 1);
+
+    // Check if attendance already exists
+    const existingAttendance = await prisma.attendance.findFirst({
+      where: {
+        studentId: parseInt(studentId),
+        classId: parseInt(classId),
+        date: {
+          gte: attendanceDate,
+          lt: nextDay
+        }
+      }
+    });
+
+    if (existingAttendance) {
+      // Update existing attendance
+      const updatedAttendance = await prisma.attendance.update({
+        where: { id: existingAttendance.id },
+        data: {
+          status: status,
+          method: 'manual',
+          markedById: markedById ? parseInt(markedById) : null,
+          markedAt: new Date()
+        }
+      });
+
+      return res.json({
+        message: 'Attendance updated successfully',
+        attendance: {
+          id: updatedAttendance.id.toString(),
+          studentId: updatedAttendance.studentId.toString(),
+          classId: updatedAttendance.classId.toString(),
+          date: updatedAttendance.date.toISOString().split('T')[0],
+          status: updatedAttendance.status,
+          method: updatedAttendance.method
+        }
+      });
+    } else {
+      // Create new attendance record
+      const newAttendance = await prisma.attendance.create({
+        data: {
+          studentId: parseInt(studentId),
+          classId: parseInt(classId),
+          date: attendanceDate,
+          status: status,
+          method: 'manual',
+          markedById: markedById ? parseInt(markedById) : null,
+          markedAt: new Date()
+        }
+      });
+
+      return res.json({
+        message: 'Attendance marked successfully',
+        attendance: {
+          id: newAttendance.id.toString(),
+          studentId: newAttendance.studentId.toString(),
+          classId: newAttendance.classId.toString(),
+          date: newAttendance.date.toISOString().split('T')[0],
+          status: newAttendance.status,
+          method: newAttendance.method
+        }
+      });
+    }
+  } catch (err) {
+    console.error('Error marking attendance:', err);
+    res.status(500).json({ error: 'Internal server error: ' + err.message });
+  }
+});
+
+// Get attendance for a class on a specific date
+app.get('/api/classes/:classId/attendance/:date', async (req, res) => {
+  try {
+    const { classId, date } = req.params;
+
+    // Parse date
+    const attendanceDate = new Date(date);
+    attendanceDate.setHours(0, 0, 0, 0);
+    const nextDay = new Date(attendanceDate);
+    nextDay.setDate(nextDay.getDate() + 1);
+
+    // Get all attendance records for this class on this date
+    const attendance = await prisma.attendance.findMany({
+      where: {
+        classId: parseInt(classId),
+        date: {
+          gte: attendanceDate,
+          lt: nextDay
+        }
+      },
+      include: {
+        student: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            registrationNumber: true
+          }
+        }
+      },
+      orderBy: {
+        student: {
+          name: 'asc'
+        }
+      }
+    });
+
+    res.json({
+      attendance: attendance.map(record => ({
+        id: record.id.toString(),
+        studentId: record.studentId.toString(),
+        classId: record.classId.toString(),
+        date: record.date.toISOString().split('T')[0],
+        status: record.status,
+        method: record.method,
+        student: {
+          id: record.student.id.toString(),
+          name: record.student.name,
+          email: record.student.email,
+          registrationNumber: record.student.registrationNumber
+        }
+      }))
+    });
+  } catch (err) {
+    console.error('Error fetching class attendance:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
