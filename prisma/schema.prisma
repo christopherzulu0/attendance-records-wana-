@@ -24,6 +24,7 @@ model User {
   classes     Class[]  @relation("TeacherClasses")
   attendance  Attendance[] @relation("MarkedBy")
   student     Student? @relation("UserStudent")
+  respondedRequests AttendanceRequest[] @relation("RequestResponder")
 }
 
 model Class {
@@ -39,6 +40,7 @@ model Class {
   createdAt   DateTime @default(now())
   classStudents ClassStudent[]
   attendance  Attendance[]
+  attendanceRequests AttendanceRequest[]
 }
 
 model Student {
@@ -54,6 +56,7 @@ model Student {
   createdAt   DateTime @default(now())
   classStudents ClassStudent[]
   attendance  Attendance[]
+  attendanceRequests AttendanceRequest[]
 }
 
 model ClassStudent {
@@ -82,3 +85,22 @@ model Attendance {
 
   @@unique([classId, studentId, date])
 }
+
+model AttendanceRequest {
+  id          Int      @id @default(autoincrement())
+  student     Student  @relation(fields: [studentId], references: [id])
+  studentId   Int
+  class       Class    @relation(fields: [classId], references: [id])
+  classId     Int
+  status      String   @default("pending") // 'pending', 'approved', 'rejected', 'expired'
+  requestedAt DateTime @default(now())
+  respondedAt DateTime?
+  respondedBy User?    @relation("RequestResponder", fields: [respondedById], references: [id])
+  respondedById Int?
+  expiresAt   DateTime? // Optional expiration timestamp
+  reason      String?  // Optional reason for request
+  
+  @@index([studentId, classId, status])
+  @@index([classId, status])
+}
+

@@ -21,7 +21,7 @@ app.use(bodyParser.json({ limit: '10mb' })); // Increase limit for base64 images
 function getPythonCommand() {
   const isWindows = os.platform() === 'win32';
   const backendDir = __dirname;
-  
+
   // Check for virtual environment
   if (isWindows) {
     const venvPython = path.join(backendDir, 'venv', 'Scripts', 'python.exe');
@@ -49,17 +49,17 @@ function callPythonFaceRecognition(command, data) {
   return new Promise((resolve, reject) => {
     const { command: pythonCommand, args } = getPythonCommand();
     const pythonArgs = [...args, command];
-    
+
     console.log(`Using Python: ${pythonCommand} ${pythonArgs.join(' ')}`);
-    
+
     const python = spawn(pythonCommand, pythonArgs, {
       cwd: __dirname // Ensure we're in the backend directory
     });
-    
+
     let stdout = '';
     let stderr = '';
     let hasResolved = false;
-    
+
     // Handle stdin errors gracefully (EPIPE is expected if process exits early)
     python.stdin.on('error', (err) => {
       if (err.code !== 'EPIPE') {
@@ -67,20 +67,20 @@ function callPythonFaceRecognition(command, data) {
       }
       // Don't reject here, let the process handle it
     });
-    
+
     python.stdout.on('data', (data) => {
       stdout += data.toString();
     });
-    
+
     python.stderr.on('data', (data) => {
       const errorText = data.toString();
       stderr += errorText;
       console.error('Python stderr:', errorText);
     });
-    
+
     python.on('close', (code) => {
       if (hasResolved) return;
-      
+
       if (code !== 0) {
         console.error('Python process exited with code:', code);
         console.error('Python stderr output:', stderr);
@@ -101,29 +101,29 @@ function callPythonFaceRecognition(command, data) {
         }
       }
     });
-    
+
     python.on('error', (err) => {
       if (hasResolved) return;
       console.error('Failed to start Python process:', err);
       reject(new Error(`Failed to start Python process: ${err.message}`));
     });
-    
+
     // Send data via stdin for large payloads
     // Wait a bit to ensure process is ready, then write
     if (data) {
       const writeData = () => {
         try {
           const jsonData = JSON.stringify(data);
-          
+
           // Check if stdin is still writable
           if (python.stdin.destroyed || python.stdin.closed) {
             console.warn('Python stdin is already closed, cannot write data');
             return;
           }
-          
+
           // Write data
           const writeSuccess = python.stdin.write(jsonData, 'utf8');
-          
+
           if (!writeSuccess) {
             // If write buffer is full, wait for drain
             python.stdin.once('drain', () => {
@@ -148,7 +148,7 @@ function callPythonFaceRecognition(command, data) {
           }
         }
       };
-      
+
       // Wait a bit to ensure process is ready
       if (python.stdin.writable) {
         // Use setImmediate to ensure process has started
@@ -231,13 +231,13 @@ app.get('/api/users', async (req, res) => {
         createdAt: true
       }
     });
-    
+
     // Convert IDs to strings for consistency with frontend
     const formattedUsers = users.map(user => ({
       ...user,
       id: user.id.toString()
     }));
-    
+
     res.status(200).json({ users: formattedUsers });
   } catch (err) {
     console.error(err);
@@ -262,13 +262,13 @@ app.get('/api/users/:id', async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
+
     // Convert ID to string for consistency with frontend
     const formattedUser = {
       ...user,
       id: user.id.toString()
     };
-    
+
     res.status(200).json({ user: formattedUser });
   } catch (err) {
     console.error(err);
@@ -301,13 +301,13 @@ app.post('/api/users', async (req, res) => {
         createdAt: true
       }
     });
-    
+
     // Convert ID to string for consistency with frontend
     const formattedUser = {
       ...user,
       id: user.id.toString()
     };
-    
+
     res.status(201).json({ user: formattedUser });
   } catch (err) {
     console.error(err);
@@ -348,13 +348,13 @@ app.put('/api/users/:id', async (req, res) => {
         createdAt: true
       }
     });
-    
+
     // Convert ID to string for consistency with frontend
     const formattedUser = {
       ...user,
       id: user.id.toString()
     };
-    
+
     res.status(200).json({ user: formattedUser });
   } catch (err) {
     console.error(err);
@@ -399,9 +399,9 @@ app.get('/api/classes', async (req, res) => {
         }
       }
     });
-    
+
     console.log('Backend - Raw classes from database:', JSON.stringify(classes, null, 2));
-    
+
     // Transform data to match frontend expectations
     const transformedClasses = classes.map(cls => ({
       id: cls.id.toString(),
@@ -416,7 +416,7 @@ app.get('/api/classes', async (req, res) => {
       totalStudents: cls.classStudents.length,
       createdAt: cls.createdAt
     }));
-    
+
     res.status(200).json({ classes: transformedClasses });
   } catch (err) {
     console.error(err);
@@ -445,11 +445,11 @@ app.get('/api/classes/:id', async (req, res) => {
         }
       }
     });
-    
+
     if (!cls) {
       return res.status(404).json({ error: 'Class not found' });
     }
-    
+
     const transformedClass = {
       id: cls.id.toString(),
       name: cls.name,
@@ -463,7 +463,7 @@ app.get('/api/classes/:id', async (req, res) => {
       totalStudents: cls.classStudents.length,
       createdAt: cls.createdAt
     };
-    
+
     // Transform students data
     const students = cls.classStudents.map(cs => ({
       id: cs.student.id.toString(),
@@ -472,7 +472,7 @@ app.get('/api/classes/:id', async (req, res) => {
       studentId: cs.student.studentId,
       createdAt: cs.student.createdAt
     }));
-    
+
     res.status(200).json({ class: transformedClass, students });
   } catch (err) {
     console.error(err);
@@ -483,22 +483,22 @@ app.get('/api/classes/:id', async (req, res) => {
 // Create new class
 app.post('/api/classes', async (req, res) => {
   const { name, section, subject, description, schedule, room, teacherId } = req.body;
-  
+
   if (!name) {
     return res.status(400).json({ error: 'Class name is required' });
   }
-  
+
   try {
     // Validate teacher exists if teacherId is provided
     if (teacherId) {
-      const teacher = await prisma.user.findUnique({ 
-        where: { id: parseInt(teacherId) } 
+      const teacher = await prisma.user.findUnique({
+        where: { id: parseInt(teacherId) }
       });
       if (!teacher) {
         return res.status(404).json({ error: 'Teacher not found' });
       }
     }
-    
+
     const cls = await prisma.class.create({
       data: {
         name,
@@ -524,7 +524,7 @@ app.post('/api/classes', async (req, res) => {
         }
       }
     });
-    
+
     const transformedClass = {
       id: cls.id.toString(),
       name: cls.name,
@@ -538,7 +538,7 @@ app.post('/api/classes', async (req, res) => {
       totalStudents: cls.classStudents.length,
       createdAt: cls.createdAt
     };
-    
+
     res.status(201).json({ class: transformedClass });
   } catch (err) {
     console.error(err);
@@ -550,31 +550,31 @@ app.post('/api/classes', async (req, res) => {
 app.put('/api/classes/:id', async (req, res) => {
   const { id } = req.params;
   const { name, section, subject, description, schedule, room, teacherId } = req.body;
-  
+
   console.log('PUT /api/classes/:id request:');
   console.log('ID:', id);
   console.log('Request body:', req.body);
   console.log('Room value:', room);
-  
+
   try {
     // Check if class exists
-    const existingClass = await prisma.class.findUnique({ 
-      where: { id: parseInt(id) } 
+    const existingClass = await prisma.class.findUnique({
+      where: { id: parseInt(id) }
     });
     if (!existingClass) {
       return res.status(404).json({ error: 'Class not found' });
     }
-    
+
     // Validate teacher exists if teacherId is provided
     if (teacherId) {
-      const teacher = await prisma.user.findUnique({ 
-        where: { id: parseInt(teacherId) } 
+      const teacher = await prisma.user.findUnique({
+        where: { id: parseInt(teacherId) }
       });
       if (!teacher) {
         return res.status(404).json({ error: 'Teacher not found' });
       }
     }
-    
+
     const cls = await prisma.class.update({
       where: { id: parseInt(id) },
       data: {
@@ -601,7 +601,7 @@ app.put('/api/classes/:id', async (req, res) => {
         }
       }
     });
-    
+
     const transformedClass = {
       id: cls.id.toString(),
       name: cls.name,
@@ -615,7 +615,7 @@ app.put('/api/classes/:id', async (req, res) => {
       totalStudents: cls.classStudents.length,
       createdAt: cls.createdAt
     };
-    
+
     res.status(200).json({ class: transformedClass });
   } catch (err) {
     console.error(err);
@@ -626,19 +626,19 @@ app.put('/api/classes/:id', async (req, res) => {
 // Delete class
 app.delete('/api/classes/:id', async (req, res) => {
   const { id } = req.params;
-  
+
   try {
     // Check if class exists
-    const existingClass = await prisma.class.findUnique({ 
-      where: { id: parseInt(id) } 
+    const existingClass = await prisma.class.findUnique({
+      where: { id: parseInt(id) }
     });
     if (!existingClass) {
       return res.status(404).json({ error: 'Class not found' });
     }
-    
+
     // Delete class (this will cascade delete related records)
     await prisma.class.delete({ where: { id: parseInt(id) } });
-    
+
     res.status(200).json({ message: 'Class deleted successfully' });
   } catch (err) {
     console.error(err);
@@ -650,24 +650,24 @@ app.delete('/api/classes/:id', async (req, res) => {
 app.post('/api/classes/:id/enroll', async (req, res) => {
   const { id } = req.params;
   const { studentId } = req.body;
-  
+
   try {
     // Check if class exists
-    const existingClass = await prisma.class.findUnique({ 
-      where: { id: parseInt(id) } 
+    const existingClass = await prisma.class.findUnique({
+      where: { id: parseInt(id) }
     });
     if (!existingClass) {
       return res.status(404).json({ error: 'Class not found' });
     }
-    
+
     // Check if student exists
-    const existingStudent = await prisma.student.findUnique({ 
-      where: { id: parseInt(studentId) } 
+    const existingStudent = await prisma.student.findUnique({
+      where: { id: parseInt(studentId) }
     });
     if (!existingStudent) {
       return res.status(404).json({ error: 'Student not found' });
     }
-    
+
     // Check if student is already enrolled
     const existingEnrollment = await prisma.classStudent.findUnique({
       where: {
@@ -677,11 +677,11 @@ app.post('/api/classes/:id/enroll', async (req, res) => {
         }
       }
     });
-    
+
     if (existingEnrollment) {
       return res.status(400).json({ error: 'Student is already enrolled in this class' });
     }
-    
+
     // Create enrollment
     const enrollment = await prisma.classStudent.create({
       data: {
@@ -693,8 +693,8 @@ app.post('/api/classes/:id/enroll', async (req, res) => {
         student: true
       }
     });
-    
-    res.status(201).json({ 
+
+    res.status(201).json({
       message: 'Student enrolled successfully',
       enrollment: {
         id: enrollment.id,
@@ -715,7 +715,7 @@ app.post('/api/classes/:id/enroll', async (req, res) => {
 app.delete('/api/classes/:id/unenroll', async (req, res) => {
   const { id } = req.params;
   const { studentId } = req.body;
-  
+
   try {
     // Check if enrollment exists
     const existingEnrollment = await prisma.classStudent.findUnique({
@@ -726,11 +726,11 @@ app.delete('/api/classes/:id/unenroll', async (req, res) => {
         }
       }
     });
-    
+
     if (!existingEnrollment) {
       return res.status(404).json({ error: 'Student is not enrolled in this class' });
     }
-    
+
     // Delete enrollment
     await prisma.classStudent.delete({
       where: {
@@ -740,7 +740,7 @@ app.delete('/api/classes/:id/unenroll', async (req, res) => {
         }
       }
     });
-    
+
     res.status(200).json({ message: 'Student unenrolled successfully' });
   } catch (err) {
     console.error('Unenrollment error:', err);
@@ -751,7 +751,7 @@ app.delete('/api/classes/:id/unenroll', async (req, res) => {
 // Get student's enrolled classes
 app.get('/api/students/:id/classes', async (req, res) => {
   const { id } = req.params;
-  
+
   try {
     const enrollments = await prisma.classStudent.findMany({
       where: { studentId: parseInt(id) },
@@ -769,7 +769,7 @@ app.get('/api/students/:id/classes', async (req, res) => {
         }
       }
     });
-    
+
     const classes = enrollments.map(enrollment => ({
       id: enrollment.class.id.toString(),
       name: enrollment.class.name,
@@ -783,7 +783,7 @@ app.get('/api/students/:id/classes', async (req, res) => {
       enrolledAt: enrollment.enrolledAt,
       createdAt: enrollment.class.createdAt
     }));
-    
+
     res.status(200).json({ classes });
   } catch (err) {
     console.error('Get student classes error:', err);
@@ -813,7 +813,7 @@ app.get('/api/students', async (req, res) => {
         createdAt: 'desc'
       }
     });
-    
+
     const formattedStudents = students.map(student => ({
       id: student.id.toString(),
       name: student.name,
@@ -826,7 +826,7 @@ app.get('/api/students', async (req, res) => {
       enrolledClassesCount: student._count.classStudents,
       createdAt: student.createdAt
     }));
-    
+
     res.json(formattedStudents);
   } catch (err) {
     console.error('Error fetching students:', err);
@@ -837,7 +837,7 @@ app.get('/api/students', async (req, res) => {
 // Get student by user ID
 app.get('/api/students/by-user/:userId', async (req, res) => {
   const { userId } = req.params;
-  
+
   try {
     const student = await prisma.student.findUnique({
       where: { userId: parseInt(userId) },
@@ -851,11 +851,11 @@ app.get('/api/students/by-user/:userId', async (req, res) => {
         }
       }
     });
-    
+
     if (!student) {
       return res.status(404).json({ error: 'Student not found for this user' });
     }
-    
+
     const formattedStudent = {
       id: student.id.toString(),
       name: student.name,
@@ -866,7 +866,7 @@ app.get('/api/students/by-user/:userId', async (req, res) => {
       hasAccount: !!student.user,
       createdAt: student.createdAt
     };
-    
+
     res.json({ student: formattedStudent });
   } catch (err) {
     console.error('Error fetching student by user ID:', err);
@@ -877,15 +877,15 @@ app.get('/api/students/by-user/:userId', async (req, res) => {
 // Create a new student
 app.post('/api/students', async (req, res) => {
   const { name, email, registrationNumber, createAccount, password, generatedPassword } = req.body;
-  
+
   try {
     let userId = null;
-    
+
     // If createAccount is true, create a user account for the student
     if (createAccount && email && (password || generatedPassword)) {
       const passwordToUse = generatedPassword || password;
       const hashedPassword = await bcrypt.hash(passwordToUse, 10);
-      
+
       const user = await prisma.user.create({
         data: {
           name,
@@ -894,10 +894,10 @@ app.post('/api/students', async (req, res) => {
           role: 'student'
         }
       });
-      
+
       userId = user.id;
     }
-    
+
     const student = await prisma.student.create({
       data: {
         name,
@@ -916,7 +916,7 @@ app.post('/api/students', async (req, res) => {
         }
       }
     });
-    
+
     const formattedStudent = {
       id: student.id.toString(),
       name: student.name,
@@ -928,7 +928,7 @@ app.post('/api/students', async (req, res) => {
       hasAccount: !!student.user,
       createdAt: student.createdAt
     };
-    
+
     res.status(201).json(formattedStudent);
   } catch (err) {
     console.error('Error creating student:', err);
@@ -944,23 +944,23 @@ app.post('/api/students', async (req, res) => {
 app.put('/api/students/:id', async (req, res) => {
   const { id } = req.params;
   const { name, email, registrationNumber, createAccount, password } = req.body;
-  
+
   try {
     const existingStudent = await prisma.student.findUnique({
       where: { id: parseInt(id) },
       include: { user: true }
     });
-    
+
     if (!existingStudent) {
       return res.status(404).json({ error: 'Student not found' });
     }
-    
+
     let userId = existingStudent.userId;
-    
+
     // If createAccount is true and student doesn't have an account, create one
     if (createAccount && !existingStudent.user && email && password) {
       const hashedPassword = await bcrypt.hash(password, 10);
-      
+
       const user = await prisma.user.create({
         data: {
           name,
@@ -969,7 +969,7 @@ app.put('/api/students/:id', async (req, res) => {
           role: 'student'
         }
       });
-      
+
       userId = user.id;
     } else if (existingStudent.user) {
       // Update existing user account
@@ -981,7 +981,7 @@ app.put('/api/students/:id', async (req, res) => {
         }
       });
     }
-    
+
     const student = await prisma.student.update({
       where: { id: parseInt(id) },
       data: {
@@ -1000,7 +1000,7 @@ app.put('/api/students/:id', async (req, res) => {
         }
       }
     });
-    
+
     const formattedStudent = {
       id: student.id.toString(),
       name: student.name,
@@ -1011,7 +1011,7 @@ app.put('/api/students/:id', async (req, res) => {
       hasAccount: !!student.user,
       createdAt: student.createdAt
     };
-    
+
     res.json(formattedStudent);
   } catch (err) {
     console.error('Error updating student:', err);
@@ -1026,29 +1026,29 @@ app.put('/api/students/:id', async (req, res) => {
 // Delete a student
 app.delete('/api/students/:id', async (req, res) => {
   const { id } = req.params;
-  
+
   try {
     const student = await prisma.student.findUnique({
       where: { id: parseInt(id) },
       include: { user: true }
     });
-    
+
     if (!student) {
       return res.status(404).json({ error: 'Student not found' });
     }
-    
+
     // Delete student record (this will cascade to ClassStudent records)
     await prisma.student.delete({
       where: { id: parseInt(id) }
     });
-    
+
     // If student has a user account, delete it too
     if (student.userId) {
       await prisma.user.delete({
         where: { id: student.userId }
       });
     }
-    
+
     res.json({ message: 'Student deleted successfully' });
   } catch (err) {
     console.error('Error deleting student:', err);
@@ -1059,26 +1059,26 @@ app.delete('/api/students/:id', async (req, res) => {
 // Link existing user to student record
 app.post('/api/students/:studentId/link-user/:userId', async (req, res) => {
   const { studentId, userId } = req.params;
-  
+
   try {
     // Check if user exists
     const user = await prisma.user.findUnique({
       where: { id: parseInt(userId) }
     });
-    
+
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
+
     // Check if student exists
     const existingStudent = await prisma.student.findUnique({
       where: { id: parseInt(studentId) }
     });
-    
+
     if (!existingStudent) {
       return res.status(404).json({ error: 'Student not found' });
     }
-    
+
     // Update student record to link with user
     const student = await prisma.student.update({
       where: { id: parseInt(studentId) },
@@ -1095,7 +1095,7 @@ app.post('/api/students/:studentId/link-user/:userId', async (req, res) => {
         }
       }
     });
-    
+
     const formattedStudent = {
       id: student.id.toString(),
       name: student.name,
@@ -1106,7 +1106,7 @@ app.post('/api/students/:studentId/link-user/:userId', async (req, res) => {
       hasAccount: !!student.user,
       createdAt: student.createdAt
     };
-    
+
     res.json({ message: 'Student linked to user successfully', student: formattedStudent });
   } catch (err) {
     console.error('Error linking student to user:', err);
@@ -1126,7 +1126,7 @@ app.post('/api/students/:id/enroll-face', async (req, res) => {
     console.log('Has faceEncoding:', !!req.body.faceEncoding);
     console.log('========================================');
     console.log('');
-    
+
     const studentId = parseInt(req.params.id);
     const { base64Image } = req.body;
 
@@ -1140,7 +1140,7 @@ app.post('/api/students/:id/enroll-face', async (req, res) => {
     // Call Python face recognition service to generate encoding
     // Pass data via stdin instead of command-line args
     const pythonResult = await callPythonFaceRecognition('encode', { image: base64Image });
-    
+
     if (!pythonResult.success) {
       console.log('Python face detection failed:', pythonResult.error);
       return res.status(400).json({ error: pythonResult.error || 'Face detection failed' });
@@ -1165,7 +1165,7 @@ app.post('/api/students/:id/enroll-face', async (req, res) => {
       }
     });
 
-    res.json({ 
+    res.json({
       message: 'Face enrollment completed successfully using deep learning',
       student: {
         id: updatedStudent.id,
@@ -1251,7 +1251,7 @@ app.get('/api/students/:id/face-status', async (req, res) => {
       return res.status(404).json({ error: 'Student not found' });
     }
 
-    res.json({ 
+    res.json({
       student: {
         id: student.id,
         name: student.name,
@@ -1276,7 +1276,7 @@ app.post('/api/attendance/face-recognition', async (req, res) => {
     console.log('base64Image length:', req.body.base64Image?.length || 0);
     console.log('========================================');
     console.log('');
-    
+
     const { studentId, classId, base64Image } = req.body;
 
     if (!studentId || !classId || !base64Image) {
@@ -1304,22 +1304,54 @@ app.post('/api/attendance/face-recognition', async (req, res) => {
       return res.status(400).json({ error: 'Student has not enrolled their face. Please enroll first.' });
     }
 
+    // Check for approved attendance request
+    const approvedRequest = await prisma.attendanceRequest.findFirst({
+      where: {
+        studentId: parseInt(studentId),
+        classId: parseInt(classId),
+        status: 'approved'
+      }
+    });
+
+    if (!approvedRequest) {
+      // Check if there's a pending request
+      const pendingRequest = await prisma.attendanceRequest.findFirst({
+        where: {
+          studentId: parseInt(studentId),
+          classId: parseInt(classId),
+          status: 'pending'
+        }
+      });
+
+      if (pendingRequest) {
+        return res.status(403).json({
+          error: 'Your attendance request is pending teacher approval. Please wait for approval before marking attendance.',
+          status: 'pending'
+        });
+      }
+
+      return res.status(403).json({
+        error: 'You need to request permission from your teacher before marking attendance. Please submit an attendance request first.',
+        status: 'no_request'
+      });
+    }
+
     console.log('Generating encoding for captured face via Python...');
-    
+
     // Generate encoding from captured image using Python
     const capturedResult = await callPythonFaceRecognition('encode', { image: base64Image });
-    
+
     if (!capturedResult.success) {
       console.log('Failed to detect face:', capturedResult.error);
       return res.status(400).json({ error: capturedResult.error || 'Could not detect face in image' });
     }
 
     console.log('Comparing with enrolled face via Python...');
-    
+
     // Get stored encoding
     const storedData = JSON.parse(student.faceEncoding);
     const storedEncoding = storedData.encoding;
-    
+
     // Compare faces using Python's face_recognition library with STRICT tolerance
     // tolerance: 0.5 = strict (recommended for attendance)
     //            0.4 = very strict (may reject some valid matches)
@@ -1333,7 +1365,7 @@ app.post('/api/attendance/face-recognition', async (req, res) => {
     console.log(`Face match: ${comparisonResult.match}, distance: ${comparisonResult.distance?.toFixed(3)}, threshold: ${comparisonResult.threshold}, quality: ${comparisonResult.quality}`);
 
     if (!comparisonResult.match) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         error: `Face not recognized. Identity does not match enrolled face.`,
         details: `Similarity: ${Math.round(comparisonResult.similarity * 100)}%, Distance: ${comparisonResult.distance?.toFixed(3)}, Quality: ${comparisonResult.quality}`,
         similarity: Math.round(comparisonResult.similarity * 100),
@@ -1546,6 +1578,486 @@ app.get('/api/classes/:classId/attendance/:date', async (req, res) => {
     });
   } catch (err) {
     console.error('Error fetching class attendance:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================================
+// ATTENDANCE REQUEST ENDPOINTS
+// ============================================
+
+// Create attendance request
+app.post('/api/attendance-requests', async (req, res) => {
+  try {
+    const { studentId, classId, reason } = req.body;
+
+    if (!studentId || !classId) {
+      return res.status(400).json({ error: 'Student ID and class ID are required' });
+    }
+
+    // Validate student exists
+    const student = await prisma.student.findUnique({
+      where: { id: parseInt(studentId) }
+    });
+
+    if (!student) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    // Validate class exists
+    const classItem = await prisma.class.findUnique({
+      where: { id: parseInt(classId) }
+    });
+
+    if (!classItem) {
+      return res.status(404).json({ error: 'Class not found' });
+    }
+
+    // Check if student is enrolled in the class
+    const enrollment = await prisma.classStudent.findUnique({
+      where: {
+        classId_studentId: {
+          classId: parseInt(classId),
+          studentId: parseInt(studentId)
+        }
+      }
+    });
+
+    if (!enrollment) {
+      return res.status(400).json({ error: 'Student is not enrolled in this class' });
+    }
+
+    // Check for existing active request (pending or approved)
+    const existingRequest = await prisma.attendanceRequest.findFirst({
+      where: {
+        studentId: parseInt(studentId),
+        classId: parseInt(classId),
+        status: {
+          in: ['pending', 'approved']
+        }
+      }
+    });
+
+    if (existingRequest) {
+      return res.status(400).json({
+        error: `You already have a ${existingRequest.status} request for this class`,
+        existingRequest: {
+          id: existingRequest.id.toString(),
+          status: existingRequest.status,
+          requestedAt: existingRequest.requestedAt
+        }
+      });
+    }
+
+    // Create new request
+    const request = await prisma.attendanceRequest.create({
+      data: {
+        studentId: parseInt(studentId),
+        classId: parseInt(classId),
+        reason: reason || null,
+        status: 'pending'
+      },
+      include: {
+        student: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        },
+        class: {
+          select: {
+            id: true,
+            name: true,
+            section: true
+          }
+        }
+      }
+    });
+
+    res.status(201).json({
+      message: 'Attendance request created successfully',
+      request: {
+        id: request.id.toString(),
+        studentId: request.studentId.toString(),
+        classId: request.classId.toString(),
+        status: request.status,
+        requestedAt: request.requestedAt,
+        reason: request.reason,
+        student: {
+          id: request.student.id.toString(),
+          name: request.student.name,
+          email: request.student.email
+        },
+        class: {
+          id: request.class.id.toString(),
+          name: request.class.name,
+          section: request.class.section
+        }
+      }
+    });
+  } catch (err) {
+    console.error('Error creating attendance request:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Check if student has active permission for a class
+app.get('/api/attendance-requests/check/:studentId/:classId', async (req, res) => {
+  try {
+    const { studentId, classId } = req.params;
+
+    // Find active approved request
+    const approvedRequest = await prisma.attendanceRequest.findFirst({
+      where: {
+        studentId: parseInt(studentId),
+        classId: parseInt(classId),
+        status: 'approved'
+      },
+      orderBy: {
+        respondedAt: 'desc'
+      }
+    });
+
+    if (approvedRequest) {
+      return res.json({
+        hasPermission: true,
+        request: {
+          id: approvedRequest.id.toString(),
+          status: approvedRequest.status,
+          requestedAt: approvedRequest.requestedAt,
+          respondedAt: approvedRequest.respondedAt
+        }
+      });
+    }
+
+    // Check for pending request
+    const pendingRequest = await prisma.attendanceRequest.findFirst({
+      where: {
+        studentId: parseInt(studentId),
+        classId: parseInt(classId),
+        status: 'pending'
+      },
+      orderBy: {
+        requestedAt: 'desc'
+      }
+    });
+
+    if (pendingRequest) {
+      return res.json({
+        hasPermission: false,
+        status: 'pending',
+        request: {
+          id: pendingRequest.id.toString(),
+          status: pendingRequest.status,
+          requestedAt: pendingRequest.requestedAt
+        }
+      });
+    }
+
+    // No active request
+    res.json({
+      hasPermission: false,
+      status: 'none'
+    });
+  } catch (err) {
+    console.error('Error checking attendance permission:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get student's attendance requests
+app.get('/api/attendance-requests/student/:studentId', async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const { status } = req.query;
+
+    const whereClause = {
+      studentId: parseInt(studentId),
+      ...(status && { status })
+    };
+
+    const requests = await prisma.attendanceRequest.findMany({
+      where: whereClause,
+      include: {
+        class: {
+          select: {
+            id: true,
+            name: true,
+            section: true,
+            subject: true
+          }
+        },
+        respondedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      },
+      orderBy: {
+        requestedAt: 'desc'
+      }
+    });
+
+    res.json({
+      requests: requests.map(req => ({
+        id: req.id.toString(),
+        studentId: req.studentId.toString(),
+        classId: req.classId.toString(),
+        status: req.status,
+        requestedAt: req.requestedAt,
+        respondedAt: req.respondedAt,
+        reason: req.reason,
+        class: {
+          id: req.class.id.toString(),
+          name: req.class.name,
+          section: req.class.section,
+          subject: req.class.subject
+        },
+        respondedBy: req.respondedBy ? {
+          id: req.respondedBy.id.toString(),
+          name: req.respondedBy.name,
+          email: req.respondedBy.email
+        } : null
+      }))
+    });
+  } catch (err) {
+    console.error('Error fetching student requests:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Get class attendance requests (for teachers)
+app.get('/api/attendance-requests/class/:classId', async (req, res) => {
+  try {
+    const { classId } = req.params;
+    const { status } = req.query;
+
+    const whereClause = {
+      classId: parseInt(classId),
+      ...(status && { status })
+    };
+
+    const requests = await prisma.attendanceRequest.findMany({
+      where: whereClause,
+      include: {
+        student: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            registrationNumber: true
+          }
+        },
+        respondedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      },
+      orderBy: {
+        requestedAt: 'desc'
+      }
+    });
+
+    res.json({
+      requests: requests.map(req => ({
+        id: req.id.toString(),
+        studentId: req.studentId.toString(),
+        classId: req.classId.toString(),
+        status: req.status,
+        requestedAt: req.requestedAt,
+        respondedAt: req.respondedAt,
+        reason: req.reason,
+        student: {
+          id: req.student.id.toString(),
+          name: req.student.name,
+          email: req.student.email,
+          registrationNumber: req.student.registrationNumber
+        },
+        respondedBy: req.respondedBy ? {
+          id: req.respondedBy.id.toString(),
+          name: req.respondedBy.name,
+          email: req.respondedBy.email
+        } : null
+      }))
+    });
+  } catch (err) {
+    console.error('Error fetching class requests:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Approve attendance request
+app.put('/api/attendance-requests/:id/approve', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { respondedById } = req.body;
+
+    if (!respondedById) {
+      return res.status(400).json({ error: 'Responder ID is required' });
+    }
+
+    // Check if request exists
+    const existingRequest = await prisma.attendanceRequest.findUnique({
+      where: { id: parseInt(id) }
+    });
+
+    if (!existingRequest) {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+
+    if (existingRequest.status !== 'pending') {
+      return res.status(400).json({ error: `Request is already ${existingRequest.status}` });
+    }
+
+    // Update request
+    const updatedRequest = await prisma.attendanceRequest.update({
+      where: { id: parseInt(id) },
+      data: {
+        status: 'approved',
+        respondedAt: new Date(),
+        respondedById: parseInt(respondedById)
+      },
+      include: {
+        student: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        },
+        class: {
+          select: {
+            id: true,
+            name: true,
+            section: true
+          }
+        },
+        respondedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      }
+    });
+
+    res.json({
+      message: 'Request approved successfully',
+      request: {
+        id: updatedRequest.id.toString(),
+        studentId: updatedRequest.studentId.toString(),
+        classId: updatedRequest.classId.toString(),
+        status: updatedRequest.status,
+        requestedAt: updatedRequest.requestedAt,
+        respondedAt: updatedRequest.respondedAt,
+        student: {
+          id: updatedRequest.student.id.toString(),
+          name: updatedRequest.student.name
+        },
+        class: {
+          id: updatedRequest.class.id.toString(),
+          name: updatedRequest.class.name
+        },
+        respondedBy: {
+          id: updatedRequest.respondedBy.id.toString(),
+          name: updatedRequest.respondedBy.name
+        }
+      }
+    });
+  } catch (err) {
+    console.error('Error approving request:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Reject attendance request
+app.put('/api/attendance-requests/:id/reject', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { respondedById } = req.body;
+
+    if (!respondedById) {
+      return res.status(400).json({ error: 'Responder ID is required' });
+    }
+
+    // Check if request exists
+    const existingRequest = await prisma.attendanceRequest.findUnique({
+      where: { id: parseInt(id) }
+    });
+
+    if (!existingRequest) {
+      return res.status(404).json({ error: 'Request not found' });
+    }
+
+    if (existingRequest.status !== 'pending') {
+      return res.status(400).json({ error: `Request is already ${existingRequest.status}` });
+    }
+
+    // Update request
+    const updatedRequest = await prisma.attendanceRequest.update({
+      where: { id: parseInt(id) },
+      data: {
+        status: 'rejected',
+        respondedAt: new Date(),
+        respondedById: parseInt(respondedById)
+      },
+      include: {
+        student: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        },
+        class: {
+          select: {
+            id: true,
+            name: true,
+            section: true
+          }
+        },
+        respondedBy: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      }
+    });
+
+    res.json({
+      message: 'Request rejected',
+      request: {
+        id: updatedRequest.id.toString(),
+        studentId: updatedRequest.studentId.toString(),
+        classId: updatedRequest.classId.toString(),
+        status: updatedRequest.status,
+        requestedAt: updatedRequest.requestedAt,
+        respondedAt: updatedRequest.respondedAt,
+        student: {
+          id: updatedRequest.student.id.toString(),
+          name: updatedRequest.student.name
+        },
+        class: {
+          id: updatedRequest.class.id.toString(),
+          name: updatedRequest.class.name
+        },
+        respondedBy: {
+          id: updatedRequest.respondedBy.id.toString(),
+          name: updatedRequest.respondedBy.name
+        }
+      }
+    });
+  } catch (err) {
+    console.error('Error rejecting request:', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
